@@ -1,0 +1,83 @@
+#include <mega128a.h>
+#include <string.h>
+
+#define SL PORTB.5 //State Led
+#define SLON PORTB.5 = 0
+#define SLOF PORTB.5 = 1
+
+short int delay = 0;
+short int clock_count = 0; //클럭세는용도 변수  
+bit connect = 0; //연결상태 저장 변수
+
+void init(void);
+int usart_rx(unsigned char *rx_data); //받기
+void usart_tx(unsigned char *data); //보내기
+
+void main(void)
+{
+    init(); 
+    while (1)
+        {  
+            if (clock_count >= 10000 & connect == 0) //시간이 1sec 이 지나고 연결되어 있지 않으면
+            {
+                clock_count = 0; //시간 초기화
+                SL = !SL; //상태 led 반전      
+                usart_tx("hello"); //blue로 hello 보냄
+                while (delay <= 1000) {} //신호 보내고 0.1초 대기
+                if (usart_rx("me too")) //me too 신호 왔는지 확인
+                {
+                    connect = 1; //연결
+                }
+            }
+        }
+}
+
+void init(void) 
+{
+    SREG = 0x80; // SREG = 0b10000000 , I 비트 활성화, 전체 인터럽트 활성화
+    TCCR0 = 0x0B; //TCCR0 = 0b00001011 , WGM01 : CTC 모드 활성화 , CS01/CS00 : 32분주 활성화 (t = clk/32)
+    OCR0 = 49; //TCNT0 가 110001번 상승해야 1번 clk이 오름
+    TIMSK = 2; //100us의 타이머 매치 인터럽트 생성
+    DDRB.5 = 1; //상태 led 핀 방향 설정
+    SLON; //상태 led 키기             
+    
+    UCSR1A = 0b00000010; //U2X1 비트 활성화 : 2배속 모드 활성화
+    UCSR1B = (0<<RXCIE1)|(0<<TXCIE1)|(1<<RXEN1)|(1<<TXEN1); //RX(수신),TX(송신) 기능 활성화
+    UCSR1C = (0<<USBS1)|(1<<UCSZ11)|(1<<UCSZ10); // USBS1 : 정지 비트수 지정, UCSZ11/UCSZ10 비트 활성화 : 데이터 비트 수 = 8
+    UBRR1H = 0;
+    UBRR1L = 207; //F가 16MHz 일때 2배속 모드 일시 9600brate 는 207의 값을 가짐
+}
+ 
+unsigned char usart_receive()
+{
+    while (!(UCSR1A&0x80));
+    return UDR1;  
+}
+
+int usart_rx(unsigned char *rx_data) 
+{
+    unsigned char Rx_Data = usart_receive();
+    int Matching_Data = strcmp(*rx_data, Rx_Data);  
+    return Matching_Data;  
+}
+
+void usart_transmit(unsigned char data)
+{
+    while (!(UCSR1A&(1<<UDRE1)));
+    UDR1 = data;    
+}
+void usart_tx(unsigned char *data) 
+{
+    while (*data != 0x00) 
+    {           
+        usart_transmit(*data);
+        data++;
+    }
+    
+}
+
+interrupt [TIM0_COMP] void Count_Time(void) //Standard time Counter 100us/Count 
+{     
+    clock_count++; 
+    delay++;
+}
